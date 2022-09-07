@@ -70,7 +70,9 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         generator: Optional[torch.Generator] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        #filter_prompt: Optional[str] = "",
     ):
+        filter_prompt = "the pose of the person"
 
         if isinstance(prompt, str):
             batch_size = 1
@@ -99,6 +101,33 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         init_latent_dist = self.vae.encode(init_image.to(self.device)).latent_dist
         init_latents = init_latent_dist.sample(generator=generator)
         init_latents = 0.18215 * init_latents
+        
+        # filter the initialization latents using a filter phrase
+        if filter_prompt:
+            # get filter text embeddings
+            init_filter_input = self.tokenizer(
+                filter_prompt,
+                padding="max_length",
+                max_length=self.tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
+            init_filter_embeddings = self.text_encoder(init_filter_input.input_ids.to(self.device))[0]
+            
+            max_length = init_filter_input.input_ids.shape[-1]
+            uncond_init_filter_input = self.tokenizer(
+                [""], padding="max_length", max_length=max_length, return_tensors="pt"
+            )
+            uncond_init_filter_embeddings = self.text_encoder(uncond_init_filter_input.input_ids.to(self.device))[0]
+
+            init_filter_embeddings = torch.cat([uncond_init_filter_embeddings, init_filter_embeddings])
+            
+            # predict the noise residual
+            #filter_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+            filtered_init = self.unet(init_latents, 0, encoder_hidden_states=init_filter_embeddings).sample
+            filtered_init_uncond, filtered_init_conditioned = filtered_init.chunk(2)
+            filtered_init = filter_pred_conditioned - filter_pred_uncond
+            init_latents = filtered_init
 
         # expand init_latents for batch_size
         init_latents = torch.cat([init_latents] * batch_size)

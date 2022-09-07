@@ -126,8 +126,8 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
             #filter_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
             filtered_init = self.unet(init_latents, 0, encoder_hidden_states=init_filter_embeddings).sample
             filtered_init_uncond, filtered_init_conditioned = filtered_init.chunk(2)
-            filtered_init = filter_pred_conditioned - filter_pred_uncond
-            init_latents = filtered_init
+            filter_gradient = filter_pred_conditioned - filter_pred_uncond
+            #init_latents = filtered_init
 
         # expand init_latents for batch_size
         init_latents = torch.cat([init_latents] * batch_size)
@@ -183,7 +183,8 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
-        latents = init_latents
+        #latents = init_latents
+        latents = torch.randn(latents_shape, generator=generator, device=self.device)
 
         t_start = max(num_inference_steps - init_timestep + offset, 0)
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps[t_start:])):
@@ -207,6 +208,9 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
             if do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                 noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                
+            #test:
+            noise_pred = noise_pred + filter_gradient
 
             # compute the previous noisy sample x_t -> x_t-1
             if isinstance(self.scheduler, LMSDiscreteScheduler):
